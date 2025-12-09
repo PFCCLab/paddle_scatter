@@ -13,14 +13,14 @@
 #define FULL_MASK 0xffffffff
 
 
-enum ReductionType { MIN, MAX, SUM, MEAN };
+enum class ReductionType { MIN, MAX, SUM, MEAN };
 
 const std::map<std::string, ReductionType> reduce2REDUCE = {
-    {"min", MIN},   {"max", MAX},   {"sum", SUM},   {"mean", MEAN}
+    {"min", ReductionType::MIN},   {"max", ReductionType::MAX},   {"sum", ReductionType::SUM},   {"mean", ReductionType::MEAN}
 };
 
 bool is_floating_point(const phi::DataType& dtype) {
-  return dtype == phi::DataType::BFLOAT16 || dtype == phi::DataType::FLOAT16 || 
+  return dtype == phi::DataType::BFLOAT16 || dtype == phi::DataType::FLOAT16 ||
          dtype == phi::DataType::FLOAT32 || dtype == phi::DataType::FLOAT64;
 }
 
@@ -57,10 +57,10 @@ segment_coo_cuda_forward_kernel(const data_t* x_data,
         assert(idx >= next_idx);
         if (idx == next_idx) {
           // update
-          if ((reduce_type == MIN && tmp < val) ||
-              (reduce_type == MAX && tmp > val))
+          if ((reduce_type == ReductionType::MIN && tmp < val) ||
+              (reduce_type == ReductionType::MAX && tmp > val))
               val = tmp;
-          else if (reduce_type == SUM || reduce_type == MEAN)
+          else if (reduce_type == ReductionType::SUM || reduce_type == ReductionType::MEAN)
               val += tmp;
         }
       }
@@ -71,16 +71,16 @@ segment_coo_cuda_forward_kernel(const data_t* x_data,
         idx != next_idx) {
     // atomic_write
       switch(reduce_type) {
-        case MIN:
+        case ReductionType::MIN:
         atomMin(out_data + out_idx, val);
           break;
-        case MAX:
+        case ReductionType::MAX:
         atomMax(out_data + out_idx, val);
           break;
-        case SUM:
+        case ReductionType::SUM:
         atomAdd(out_data + out_idx, val);
           break;
-        case MEAN:
+        case ReductionType::MEAN:
         atomAdd(out_data + out_idx, val);
           break;
       }
@@ -129,24 +129,24 @@ __global__ void segment_coo_broadcast_cuda_forward_kernel(const data_t *x_data,
       if (idx1 == idx2) {
         mp_t tmp = static_cast<mp_t>(x_data[K * (dim_start * D + row_start + i) + col_idx]);
         // update
-        if ((reduce_type == MIN && tmp < val) ||
-            (reduce_type == MAX && tmp > val))
+        if ((reduce_type == ReductionType::MIN && tmp < val) ||
+            (reduce_type == ReductionType::MAX && tmp > val))
             val = tmp;
-        else if (reduce_type == SUM || reduce_type == MEAN)
+        else if (reduce_type == ReductionType::SUM || reduce_type == ReductionType::MEAN)
             val += tmp;
       } else {
         // atomic_write
         switch(reduce_type) {
-          case MIN:
+          case ReductionType::MIN:
           atomMin(out_data + (dim_start * N + idx1) * K + col_idx, val);
             break;
-          case MAX:
+          case ReductionType::MAX:
           atomMax(out_data + (dim_start * N + idx1) * K + col_idx, val);
             break;
-          case SUM:
+          case ReductionType::SUM:
           atomAdd(out_data + (dim_start * N + idx1) * K + col_idx, val);
             break;
-          case MEAN:
+          case ReductionType::MEAN:
           atomAdd(out_data + (dim_start * N + idx1) * K + col_idx, val);
             break;
         }
@@ -157,16 +157,16 @@ __global__ void segment_coo_broadcast_cuda_forward_kernel(const data_t *x_data,
     }
     // atomic_write
     switch(reduce_type) {
-      case MIN:
+      case ReductionType::MIN:
       atomMin(out_data + (dim_start * N + idx1) * K + col_idx, val);
         break;
-      case MAX:
+      case ReductionType::MAX:
       atomMax(out_data + (dim_start * N + idx1) * K + col_idx, val);
         break;
-      case SUM:
+      case ReductionType::SUM:
       atomAdd(out_data + (dim_start * N + idx1) * K + col_idx, val);
         break;
-      case MEAN:
+      case ReductionType::MEAN:
       atomAdd(out_data + (dim_start * N + idx1) * K + col_idx, val);
         break;
     }
@@ -226,7 +226,7 @@ __global__ void post_process_kernel(data_t init_val,
                                     int numel,
                                     data_t* out_data) {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
-  
+
   if (tid < numel) {
     if (out_data[tid] == init_val)
       out_data[tid] = static_cast<data_t>(0.0);
@@ -237,7 +237,7 @@ template <typename mp_t>
 __global__ void post_process_mean_kernel(mp_t* count_data,
                                         int numel) {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
-  
+
   if (tid < numel) {
     if (count_data[tid] < static_cast<mp_t>(1.0))
       count_data[tid] = static_cast<mp_t>(1.0);
@@ -271,7 +271,7 @@ std::vector<paddle::Tensor> segment_coo_cuda_forward(const paddle::Tensor& x,
   else {
     out = paddle::empty(return_shape, x.dtype(), x.place());
   }
-  
+
   auto dim = index_dims.size() - 1;
   paddle::Tensor arg_out;
   int count_numel;
@@ -302,7 +302,7 @@ std::vector<paddle::Tensor> segment_coo_cuda_forward(const paddle::Tensor& x,
     } else {
       out_mp = out;
     }
-    
+
     if (!init) {
       if (reduce == "min")
         paddle::experimental::fill_(out_mp, std::numeric_limits<MPType>::max());
@@ -318,7 +318,7 @@ std::vector<paddle::Tensor> segment_coo_cuda_forward(const paddle::Tensor& x,
 
     switch(index.dtype()) {
       case paddle::DataType::INT32:
-      { 
+      {
         auto index_info = getTensorInfo<int>(index);
         if (K == 1)
           segment_coo_cuda_forward_kernel<data_t, MPType, int, true>
@@ -345,7 +345,7 @@ std::vector<paddle::Tensor> segment_coo_cuda_forward(const paddle::Tensor& x,
               <<<dim3((E_1 * ((E_2 + 31) / 32) + 7) / 8, (K + 31) / 32),
                 dim3(32, 8), 0, x.stream()>>>(
               x_data, index_info, reduce2REDUCE.at(reduce), out_data, E, K, N);
-        
+
         if (reduce == "min" || reduce == "max") {
           int* arg_out_data = arg_out.data<int>();
           if (K == 1)
@@ -417,7 +417,7 @@ std::vector<paddle::Tensor> segment_coo_cuda_forward(const paddle::Tensor& x,
               <<<dim3((E_1 * ((E_2 + 31) / 32) + 7) / 8, (K + 31) / 32),
                 dim3(32, 8), 0, x.stream()>>>(
               x_data, index_info, reduce2REDUCE.at(reduce), out_data, E, K, N);
-        
+
         if (reduce == "min" || reduce == "max") {
           int64_t* arg_out_data = arg_out.data<int64_t>();
           if (K == 1)
@@ -429,7 +429,7 @@ std::vector<paddle::Tensor> segment_coo_cuda_forward(const paddle::Tensor& x,
               <<<BLOCKS(1, E * K), THREADS, 0, x.stream()>>>(
                 x_data, index_info, out_data, arg_out_data, E, K, N);
         }
-        
+
         if (reduce == "mean") {
           paddle::Tensor arg_out_mp;
           if (x.dtype() == paddle::DataType::FLOAT16 || x.dtype() == paddle::DataType::BFLOAT16) {
@@ -453,7 +453,7 @@ std::vector<paddle::Tensor> segment_coo_cuda_forward(const paddle::Tensor& x,
             paddle::experimental::divide_(out_mp, count);
           else
             paddle::experimental::floor_divide_(out_mp, count);
-          
+
           if (x.dtype() == paddle::DataType::FLOAT16 || x.dtype() == paddle::DataType::BFLOAT16) {
             arg_out = paddle::experimental::cast(arg_out_mp, x.dtype());
           }
@@ -470,7 +470,7 @@ std::vector<paddle::Tensor> segment_coo_cuda_forward(const paddle::Tensor& x,
    if (x.dtype() == paddle::DataType::FLOAT16 || x.dtype() == paddle::DataType::BFLOAT16) {
       out = paddle::experimental::cast(out_mp, x.dtype());
    }
-   
+
    if (!init) {
     data_t init_val = static_cast<data_t>((reduce == "min") ? std::numeric_limits<MPType>::max() : std::numeric_limits<MPType>::lowest());
     post_process_kernel<data_t>
@@ -559,7 +559,7 @@ std::vector<paddle::Tensor> gather_coo_cuda_forward(const paddle::Tensor& x,
   auto E = index.numel();
   auto K = out.numel() / E;
   auto N = x_dims[dim];
-  
+
   PD_DISPATCH_FLOATING_AND_INTEGRAL_AND_2_TYPES(
     paddle::DataType::FLOAT16, paddle::DataType::BFLOAT16,
     x.dtype(), "gather_coo_cuda_forward_kernel", ([&] {
@@ -572,7 +572,7 @@ std::vector<paddle::Tensor> gather_coo_cuda_forward(const paddle::Tensor& x,
 
     switch(index.dtype()) {
       case paddle::DataType::INT32:
-      { 
+      {
         auto index_info = getTensorInfo<int>(index);
         auto stride = index_info.strides[index_info.dims - 1];
         if (K == 1)

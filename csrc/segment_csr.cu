@@ -13,10 +13,10 @@
 #define FULL_MASK 0xffffffff
 
 
-enum ReductionType { MIN, MAX, SUM, MEAN };
+enum class ReductionType { MIN, MAX, SUM, MEAN };
 
 const std::map<std::string, ReductionType> reduce2REDUCE = {
-    {"min", MIN},   {"max", MAX},   {"sum", SUM},   {"mean", MEAN}
+    {"min", ReductionType::MIN},   {"max", ReductionType::MAX},   {"sum", ReductionType::SUM},   {"mean", ReductionType::MEAN}
 };
 
 template <typename data_t, typename index_t, int TB>
@@ -44,24 +44,24 @@ __global__ void segment_csr_kernel(const data_t *x_data,
 
     // init
     data_t val;
-    if (reduce_type == MIN)
+    if (reduce_type == ReductionType::MIN)
       val = static_cast<data_t>(std::numeric_limits<MPType>::max());
-    else if (reduce_type == MAX)
+    else if (reduce_type == ReductionType::MAX)
       val = static_cast<data_t>(std::numeric_limits<MPType>::lowest());
-    else if (reduce_type == SUM || reduce_type == MEAN)
+    else if (reduce_type == ReductionType::SUM || reduce_type == ReductionType::MEAN)
       val = static_cast<data_t>(0);
-    
+
     index_t arg, arg_tmp;
     offset = (row_idx / (indptr_info.sizes[indptr_info.dims - 1] - 1)) * E;
     for (index_t x_idx = row_start + lane_idx; x_idx < row_end;
          x_idx += TB) {
       // update
       auto cmp = x_data[offset + x_idx];
-      if ((reduce_type == MIN && cmp < val) || 
-          (reduce_type == MAX && cmp > val)) {
+      if ((reduce_type == ReductionType::MIN && cmp < val) ||
+          (reduce_type == ReductionType::MAX && cmp > val)) {
         val = cmp;
         arg = x_idx;
-      } else if (reduce_type == SUM || reduce_type == MEAN) {
+      } else if (reduce_type == ReductionType::SUM || reduce_type == ReductionType::MEAN) {
         val += cmp;
       }
     }
@@ -69,15 +69,15 @@ __global__ void segment_csr_kernel(const data_t *x_data,
 #pragma unroll
     for (int i = TB / 2; i > 0; i /= 2) {
       // Parallel reduction inside a single warp.
-      if (reduce_type == MIN || reduce_type == MAX)
+      if (reduce_type == ReductionType::MIN || reduce_type == ReductionType::MAX)
         arg_tmp = SHFL_DOWN_SYNC(FULL_MASK, arg, i);
       // update
       MPType cmp = SHFL_DOWN_SYNC(FULL_MASK, static_cast<MPType>(val), i);
-      if ((reduce_type == MIN && cmp < static_cast<MPType>(val)) || 
-          (reduce_type == MAX && cmp > static_cast<MPType>(val))) {
+      if ((reduce_type == ReductionType::MIN && cmp < static_cast<MPType>(val)) ||
+          (reduce_type == ReductionType::MAX && cmp > static_cast<MPType>(val))) {
         val = static_cast<data_t>(cmp);
         arg = arg_tmp;
-      } else if (reduce_type == SUM || reduce_type == MEAN) {
+      } else if (reduce_type == ReductionType::SUM || reduce_type == ReductionType::MEAN) {
         val += static_cast<data_t>(cmp);
       }
     }
@@ -85,11 +85,11 @@ __global__ void segment_csr_kernel(const data_t *x_data,
     if (lane_idx == 0) {
       // write
       auto count = row_end - row_start;
-      if (reduce_type == SUM) {
+      if (reduce_type == ReductionType::SUM) {
         out_data[row_idx] = val;
-      } else if (reduce_type == MEAN) {
+      } else if (reduce_type == ReductionType::MEAN) {
         out_data[row_idx] = val / static_cast<data_t>(count > 0 ? count : 1);
-      } else if (reduce_type == MIN || reduce_type == MAX) {
+      } else if (reduce_type == ReductionType::MIN || reduce_type == ReductionType::MAX) {
         if (count > 0) {
           out_data[row_idx] = val;
           arg_out_data[row_idx] = arg;
@@ -128,11 +128,11 @@ __global__ void segment_csr_broadcast_min_max_kernel(const data_t *x_data,
 
     // init
     data_t val;
-    if (reduce_type == MIN)
+    if (reduce_type == ReductionType::MIN)
       val = static_cast<data_t>(std::numeric_limits<MPType>::max());
-    else if (reduce_type == MAX)
+    else if (reduce_type == ReductionType::MAX)
       val = static_cast<data_t>(std::numeric_limits<MPType>::lowest());
-    else if (reduce_type == SUM || reduce_type == MEAN)
+    else if (reduce_type == ReductionType::SUM || reduce_type == ReductionType::MEAN)
       val = static_cast<data_t>(0);
     index_t arg;
 
@@ -140,22 +140,22 @@ __global__ void segment_csr_broadcast_min_max_kernel(const data_t *x_data,
     for (index_t x_idx = row_start; x_idx < row_end; x_idx++) {
       // update
       auto cmp = x_data[offset + K * x_idx + lane_idx];
-      if ((reduce_type == MIN && cmp < val) || 
-          (reduce_type == MAX && cmp > val)) {
+      if ((reduce_type == ReductionType::MIN && cmp < val) ||
+          (reduce_type == ReductionType::MAX && cmp > val)) {
         val = cmp;
         arg = x_idx;
-      } else if (reduce_type == SUM || reduce_type == MEAN) {
+      } else if (reduce_type == ReductionType::SUM || reduce_type == ReductionType::MEAN) {
         val += cmp;
       }
     }
 
     // write
     auto count = row_end - row_start;
-    if (reduce_type == SUM) {
+    if (reduce_type == ReductionType::SUM) {
       out_data[thread_idx] = val;
-    } else if (reduce_type == MEAN) {
+    } else if (reduce_type == ReductionType::MEAN) {
       out_data[thread_idx] = val / static_cast<data_t>(count > 0 ? count : 1);
-    } else if (reduce_type == MIN || reduce_type == MAX) {
+    } else if (reduce_type == ReductionType::MIN || reduce_type == ReductionType::MAX) {
       if (count > 0) {
         out_data[thread_idx] = val;
         arg_out_data[thread_idx] = arg;
@@ -192,7 +192,7 @@ std::vector<paddle::Tensor> segment_csr_cuda_forward(const paddle::Tensor& x,
   else {
     out = paddle::empty(return_shape, x.dtype(), x.place());
   }
-  
+
   paddle::Tensor arg_out;
   if (reduce == "min" || reduce == "max") {
     arg_out = paddle::experimental::full_like(out, x_dims[dim], indptr.dtype(), indptr.place());
@@ -210,18 +210,18 @@ std::vector<paddle::Tensor> segment_csr_cuda_forward(const paddle::Tensor& x,
     data_t* out_data = out.data<data_t>();
     switch(indptr.dtype()) {
       case paddle::DataType::INT32:
-      { 
+      {
         auto indptr_info = getTensorInfo<int>(indptr);
         int* arg_out_data = (reduce == "min" || reduce == "max") ? arg_out.data<int>() : nullptr;
         if (K == 1) {
           segment_csr_kernel<data_t, int, 1>
               <<<BLOCKS(32, N), THREADS, 0, x.stream()>>>(
-                  x_data, indptr_info, reduce2REDUCE.at(reduce), 
+                  x_data, indptr_info, reduce2REDUCE.at(reduce),
                   out_data, arg_out_data, N, E);
         } else {
           segment_csr_broadcast_min_max_kernel<data_t, int>
               <<<BLOCKS(1, N * K), THREADS, 0, x.stream()>>>(
-                  x_data, indptr_info, reduce2REDUCE.at(reduce), 
+                  x_data, indptr_info, reduce2REDUCE.at(reduce),
                   out_data, arg_out_data, N, K, E);
         }
         break;
@@ -233,12 +233,12 @@ std::vector<paddle::Tensor> segment_csr_cuda_forward(const paddle::Tensor& x,
         if (K == 1) {
           segment_csr_kernel<data_t, int64_t, 1>
               <<<BLOCKS(32, N), THREADS, 0, x.stream()>>>(
-                  x_data, indptr_info, reduce2REDUCE.at(reduce), 
+                  x_data, indptr_info, reduce2REDUCE.at(reduce),
                   out_data, arg_out_data, N, E);
         } else {
           segment_csr_broadcast_min_max_kernel<data_t, int64_t>
               <<<BLOCKS(1, N * K), THREADS, 0, x.stream()>>>(
-                  x_data, indptr_info, reduce2REDUCE.at(reduce), 
+                  x_data, indptr_info, reduce2REDUCE.at(reduce),
                   out_data, arg_out_data, N, K, E);
         }
         break;
@@ -346,7 +346,7 @@ std::vector<paddle::Tensor> gather_csr_cuda_forward(const paddle::Tensor& x,
     data_t* out_data = out.data<data_t>();
     switch(indptr.dtype()) {
       case paddle::DataType::INT32:
-      { 
+      {
         auto indptr_info = getTensorInfo<int>(indptr);
         if (K == 1)
           gather_csr_kernel<data_t, int, MPType, 4>

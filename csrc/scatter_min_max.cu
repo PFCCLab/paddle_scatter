@@ -12,10 +12,10 @@
 #define BLOCKS(N) (N + THREADS - 1) / THREADS
 
 
-enum ReductionType { MIN, MAX };
+enum class ReductionType { MIN, MAX };
 
 const std::map<std::string, ReductionType> reduce2REDUCE = {
-    {"min", MIN},   {"max", MAX}
+    {"min", ReductionType::MIN},   {"max", ReductionType::MAX}
 };
 
 template <typename data_t, typename mp_t, typename index_t>
@@ -36,13 +36,13 @@ __global__ void scatter_min_max_cuda_forward_kernel(const data_t* x_data,
     int64_t idx = index_info.data[IndexToOffset<index_t>::get(tid, index_info)];
 
     switch(reduce_type) {
-      case MIN:
+      case ReductionType::MIN:
       {
         atomMin(out_data + b * N * K + idx * K + k,
           static_cast<mp_t>(x_data[tid]));
         break;
       }
-      case MAX:
+      case ReductionType::MAX:
       {
         atomMax(out_data + b * N * K + idx * K + k,
           static_cast<mp_t>(x_data[tid]));
@@ -82,7 +82,7 @@ __global__ void post_process_kernel(data_t init_val,
                                     int numel,
                                     data_t* out_data) {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
-  
+
   if (tid < numel) {
     if (out_data[tid] == init_val)
       out_data[tid] = static_cast<data_t>(0.0);
@@ -135,11 +135,11 @@ std::vector<paddle::Tensor> scatter_min_max_cuda_forward(const paddle::Tensor& x
     using MPType = typename MPTypeTrait<data_t>::Type;
     paddle::Tensor out_mp;
     if (x.dtype() == paddle::DataType::FLOAT16 || x.dtype() == paddle::DataType::BFLOAT16) {
-      out_mp = paddle::experimental::cast(out, paddle::DataType::FLOAT32);  
+      out_mp = paddle::experimental::cast(out, paddle::DataType::FLOAT32);
     } else {
       out_mp = out;
     }
-    
+
     if (!init) {
       if (reduce == "min")
         paddle::experimental::fill_(out_mp, std::numeric_limits<MPType>::max());
@@ -153,14 +153,14 @@ std::vector<paddle::Tensor> scatter_min_max_cuda_forward(const paddle::Tensor& x
 
     switch(index.dtype()) {
       case paddle::DataType::INT32:
-      { 
+      {
         auto index_info = getTensorInfo<int>(index);
         int* arg_out_data = arg_out.data<int>();
         scatter_min_max_cuda_forward_kernel<data_t, MPType, int>
         <<<BLOCKS(x.numel()), THREADS, 0, x.stream()>>>(
           x_data, index_info, reduce2REDUCE.at(reduce), x.numel(),
           E, K, N, out_data);
-        
+
        scatter_arg_min_max_cuda_forward_kernel<data_t, MPType, int>
       <<<BLOCKS(x.numel()), THREADS, 0, x.stream()>>>(
          x_data, index_info, x.numel(),
@@ -175,7 +175,7 @@ std::vector<paddle::Tensor> scatter_min_max_cuda_forward(const paddle::Tensor& x
           <<<BLOCKS(x.numel()), THREADS, 0, x.stream()>>>(
             x_data, index_info, reduce2REDUCE.at(reduce), x.numel(),
             E, K, N, out_data);
-        
+
        scatter_arg_min_max_cuda_forward_kernel<data_t, MPType, int64_t>
        <<<BLOCKS(x.numel()), THREADS, 0, x.stream()>>>(
          x_data, index_info, x.numel(),
