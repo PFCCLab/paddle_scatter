@@ -22,19 +22,30 @@ __version__ = get_version()
 
 
 def set_cuda_archs():
-    major, _ = paddle.version.cuda_version.split(".")
-    if int(major) >= 12:
-        paddle_known_gpu_archs = [50, 60, 61, 70, 75, 80, 90]
-    elif int(major) >= 11:
-        paddle_known_gpu_archs = [50, 60, 61, 70, 75, 80]
-    elif int(major) >= 10:
-        paddle_known_gpu_archs = [50, 52, 60, 61, 70, 75]
-    else:
-        raise ValueError("Not support cuda version.")
+    cuda_major, _ = paddle.version.cuda_version.split(".")
 
-    os.environ["PADDLE_CUDA_ARCH_LIST"] = ",".join(
-        [str(arch) for arch in paddle_known_gpu_archs]
-    )
+    if int(paddle.version.major) >= 3 and int(paddle.version.minor) >= 3:
+        if int(cuda_major) >= 13:
+            paddle_known_gpu_archs = ['Turing','Ampere','Ada','Hopper','Blackwell']
+        elif int(cuda_major) >= 12:
+            paddle_known_gpu_archs = ['Pascal','Volta','Turing','Ampere','Ada','Hopper']
+        elif int(cuda_major) >= 11:
+            paddle_known_gpu_archs = ['Pascal','Volta','Turing','Ampere','Ada']
+        elif int(cuda_major) >= 10:
+            paddle_known_gpu_archs = ['Pascal','Volta','Turing']
+        else:
+            raise ValueError("Not support cuda version.")
+
+        os.environ["PADDLE_CUDA_ARCH_LIST"] = " ".join(
+            [str(arch) for arch in paddle_known_gpu_archs]
+        )
+    else:
+        # compatible with paddle < 3.3.0
+        paddle_known_gpu_archs = paddle.version.compiled_cuda_archs
+
+        os.environ["PADDLE_CUDA_ARCH_LIST"] = ",".join(
+            [str(arch) for arch in paddle_known_gpu_archs]
+        )
 
 
 def get_sources():
