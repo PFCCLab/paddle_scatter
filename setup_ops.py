@@ -35,13 +35,17 @@ def set_cuda_archs():
             paddle_known_gpu_archs = ['Pascal','Volta','Turing']
         else:
             raise ValueError("Not support cuda version.")
+
+        os.environ["PADDLE_CUDA_ARCH_LIST"] = " ".join(
+            [str(arch) for arch in paddle_known_gpu_archs]
+        )
     else:
         # compatible with paddle < 3.3.0
         paddle_known_gpu_archs = paddle.version.compiled_cuda_archs
 
-    os.environ["PADDLE_CUDA_ARCH_LIST"] = " ".join(
-        [str(arch) for arch in paddle_known_gpu_archs]
-    )
+        os.environ["PADDLE_CUDA_ARCH_LIST"] = ",".join(
+            [str(arch) for arch in paddle_known_gpu_archs]
+        )
 
 
 def get_sources():
