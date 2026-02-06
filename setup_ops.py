@@ -71,6 +71,14 @@ def get_extensions():
         nvcc_flags = [] if nvcc_flags == "" else nvcc_flags.split(" ")
         nvcc_flags += ["-O3"]
         nvcc_flags += ["--expt-relaxed-constexpr"]
+
+        # CUDA 13.x may have stricter host compiler version checks,
+        # add --allow-unsupported-compiler to avoid build failures
+        # with newer or not-yet-certified host compilers.
+        cuda_major, _ = paddle.version.cuda_version.split(".")
+        if int(cuda_major) >= 13:
+            nvcc_flags += ["--allow-unsupported-compiler"]
+
         extra_compile_args["nvcc"] = nvcc_flags
 
     src = get_sources()

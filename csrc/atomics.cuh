@@ -172,7 +172,10 @@ static inline __device__ void atomAdd(int64_t *address, int64_t val) {
 static inline __device__ void atomAdd(float *address, float val) {
   atomicAdd(address, val);
 }
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 600 || CUDA_VERSION < 8000)
+// CUDA 13.x only supports SM 70+, where native atomicAdd for double is available.
+// For older CUDA versions (< 8.0) or architectures without native double atomicAdd
+// (SM < 6.0), fall back to CAS-based implementation.
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 600) && (CUDA_VERSION < 13000)
 static inline __device__ void atomAdd(double *address, double val) {
   AtomicAddDecimalImpl<double, sizeof(double)>()(address, val);
 }
