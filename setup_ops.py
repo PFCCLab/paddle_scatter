@@ -25,6 +25,16 @@ def set_cuda_archs():
     cuda_major, _ = paddle.version.cuda_version.split(".")
 
     if int(paddle.version.major) >= 3 and int(paddle.version.minor) >= 3:
+        ARCH_TO_CUDA_CAPABILITY = {
+            'Pascal': '6.0;6.1;6.2',
+            'Volta': '7.0;7.2',
+            'Turing': '7.5',
+            'Ampere': '8.0;8.6',
+            'Ada': '8.9',
+            'Hopper': '9.0',
+            'Blackwell': '10.0',
+        }
+
         if int(cuda_major) >= 13:
             paddle_known_gpu_archs = ['Turing','Ampere','Ada','Hopper','Blackwell']
         elif int(cuda_major) >= 12:
@@ -36,8 +46,8 @@ def set_cuda_archs():
         else:
             raise ValueError("Not support cuda version.")
 
-        os.environ["PADDLE_CUDA_ARCH_LIST"] = " ".join(
-            [str(arch) for arch in paddle_known_gpu_archs]
+        os.environ["PADDLE_CUDA_ARCH_LIST"] = ";".join(
+            [ARCH_TO_CUDA_CAPABILITY[arch] for arch in paddle_known_gpu_archs]
         )
     else:
         # compatible with paddle < 3.3.0
